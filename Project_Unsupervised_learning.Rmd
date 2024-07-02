@@ -1,0 +1,401 @@
+---
+title: "Project Name"
+author: "Bahalul Khan Pathan, Aditya, Sujith"
+date: '2023-12-06'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rmarkdown)
+library(DT)
+library(ggplot2)
+library(tidyverse)
+library(grid)
+library(knitr)
+library(dplyr)
+library(lubridate)
+library(factoextra)
+library(gridExtra)
+library(fpc)
+library(tidyr)
+library(cluster)
+library(clValid)
+library(dendextend)
+library(flextable)
+```
+```{r}
+# Set seed for reproducibility
+set.seed(123456)
+# Read the dataset 'OnlineRetail.csv' into the 'retail' dataframe
+retail <- read.csv("OnlineRetail.csv")
+```
+```{r}
+# Print the dimensions of the 'retail' dataframe (number of rows and columns)
+cat("Dimensions of 'retail':", nrow(retail), "rows and", ncol(retail), "columns\n")
+```
+```{r}
+# Print the structure of the 'retail' dataframe
+cat("Structure of 'retail':\n")
+str(retail)
+```
+```{r}
+# Check and print the count of missing values in each column
+missing_values <- sapply(retail, function(x) sum(is.na(x)))
+cat("Count of missing values in each column:\n")
+print(missing_values)
+```
+```{r}
+# Check if 'retail' contains any NULL values and print the result
+contains_null <- any(sapply(retail, function(x) any(is.null(x))))
+cat("Does 'retail' contain any NULL values? \n")
+print(contains_null)
+```
+```{r}
+# Remove rows with missing values in 'retail'
+retail <- retail[complete.cases(retail), ]
+cat("Dimensions of 'retail' after removing missing values:",
+    nrow(retail), "rows and", ncol(retail), "columns\n")
+```
+```{r}
+# Replace negative or zero values in 'Quantity' and 'UnitPrice' with NA
+retail$Quantity[retail$Quantity <= 0] <- NA
+retail$UnitPrice[retail$UnitPrice <= 0] <- NA
+```
+```{r}
+# Calculate the number of unique rows in 'retail'
+num_unique_rows <- nrow(unique(retail))
+cat("Number of unique rows in 'retail': \n")
+print(num_unique_rows)
+```
+```{r}
+retail <- mutate(retail, InvoiceDate = as.character(InvoiceDate))
+```
+```{r}
+# Convert 'InvoiceDate' to character and then to POSIXct, and create new date-related columns
+retail <- mutate(retail, InvoiceDate = as.character(InvoiceDate))
+retail$InvoiceDate <- as.character(retail$InvoiceDate)
+retail$InvoiceDate <- as.POSIXct(retail$InvoiceDate, format = "%m/%d/%Y %H:%M")
+retail$date <- format(retail$InvoiceDate, "%m/%d/%Y")
+retail$time <- format(retail$InvoiceDate, "%H:%M")
+retail$month <- format(retail$InvoiceDate, "%m")
+retail$year <- format(retail$InvoiceDate, "%Y")
+retail$hourOfDay <- format(retail$InvoiceDate, "%H")
+```
+```{r}
+# Convert 'InvoiceDate' to character, then to Date, and create new columns
+retail <- mutate(retail, InvoiceDate = as.character(InvoiceDate))
+```
+```{r}
+retail$InvoiceDate <- as.Date(retail$InvoiceDate, format = "%Y-%m-%d")
+retail <- transform(retail,
+                   TotalSales = Quantity * UnitPrice,
+                   dayOfWeek = weekdays(as.Date(InvoiceDate)))
+```
+```{r}
+# Convert categorical variables to factors and set factor levels for 'year'
+retail <- retail %>%
+  mutate(
+    Country = as.factor(Country),
+    month = as.factor(month),
+    year = as.factor(year),
+    year = factor(year, levels = c(2010, 2011)),
+    hourOfDay = as.factor(hourOfDay),
+    dayOfWeek = as.factor(dayOfWeek)
+  )
+```
+```{r}
+# Create a flextable of the first 100 rows of 'retail'
+ft <- flextable(head(retail, 100))
+ft <- flextable::set_table_properties(ft, layout = "fixed")
+ft
+```
+```{r}
+# Calculate the difference in days from the maximum date in 'retail'
+retail$Diff <- as.numeric(difftime(max(retail$InvoiceDate), retail$InvoiceDate, units = "days"))
+```
+```{r}
+# Create RFM (Recency, Frequency, Monetary) summary for each customer
+RFM <- retail %>%
+  group_by(CustomerID) %>%
+  summarise(
+    Frequency = n(),
+    Monetary = sum(TotalSales),
+    Recency = as.numeric(difftime(max(retail$InvoiceDate), min(InvoiceDate), units = "days"))
+  ) %>%
+  mutate(Monetary = ifelse(is.na(Monetary), 0, Monetary))
+summary(RFM)
+```
+```{r}
+# Display the first 10 rows of the RFM summary
+head(RFM,10)
+```
+```{r}
+# Create a bar plot to compare transactions in 2010 and 2011
+ggplot(retail, aes(x = factor(year))) +
+  geom_bar(fill = c("green", "orange"), width = 0.6) +
+  labs(title = "2010 vs 2011", x = "Year", y = "Transactions") +
+  scale_fill_manual(values = c("green" = "green", "orange" = "orange")) +
+  theme_classic()
+```
+```{r}
+# Create a summary of transactions per country and plot the top 5
+Transactions_per_Country <- retail %>%
+  group_by(Country) %>%
+  summarise('Number of Transactions' = n()) %>%
+  arrange(desc(`Number of Transactions`)) %>%
+  slice_head(n = 10)
+```
+```{r}
+#names(Transactions_per_Country) <- c("Country", "Number of Transactions")
+```
+```{r}
+# Create a bar plot for the top 5 countries by number of transactions
+Transaction_per_Country_plot <- ggplot(Transactions_per_Country[1:5,], aes(x = reorder(Country, -`Number of Transactions`), y = `Number of Transactions`)) +
+  geom_bar(stat = 'identity', fill = "Steel Blue") +
+  geom_text(aes(label = `Number of Transactions`), vjust = -0.5) +
+  ggtitle('Top 5 Countries by Number of Transactions') +
+  xlab('Countries') +
+  ylab('Number of Transactions') +
+  theme_minimal()
+print(Transaction_per_Country_plot)
+```
+```{r}
+# Revenue by Day of Week
+plot_day_of_week <- retail %>%
+  group_by(dayOfWeek) %>%
+  summarise(revenue = sum(TotalSales)) %>%
+  ggplot(aes(x = dayOfWeek, y = revenue)) +
+  geom_bar(stat = 'identity', fill = 'Steel Blue') +
+  labs(x = 'Day of Week', y = 'Revenue (£)', title = 'Revenue by Day of Week') +
+  theme_minimal()
+#print(plot_day_of_week)
+```
+```{r}
+# Revenue by Month
+plot_month <- retail %>%
+  group_by(month) %>%
+  summarise(revenue = sum(TotalSales)) %>%
+  ggplot(aes(x = month, y = revenue)) +
+  geom_bar(stat = 'identity', fill = 'Steel Blue') +
+  labs(x = 'Month', y = 'Revenue (£)', title = 'Revenue by Month of Year') +
+  theme_minimal()
+#print(plot_month)
+```
+```{r}
+# Transactions by Hour of Day
+plot_hour_of_day <- retail %>%
+  group_by(hourOfDay) %>%
+  summarise(transactions = n_distinct(InvoiceNo)) %>%
+  ggplot(aes(x = hourOfDay, y = transactions)) +
+  geom_bar(stat = 'identity', fill = 'Steel Blue') +
+  labs(x = 'Hour of Day', y = 'Transactions', title = 'Transactions by Hour of Day') +
+  theme_minimal()
+print(plot_hour_of_day)
+```
+```{r}
+# Scale RFM variables for k-means clustering
+RFM_scaled <- RFM %>% mutate_all(scale)
+```
+```{r}
+# Calculate within-cluster sum of squares for different numbers of clusters
+wss_values <- numeric(10)
+for (i in 1:10) {
+  kmeans_model <- kmeans(RFM_scaled, centers = i, nstart = 10)
+  wss_values[i] <- kmeans_model$tot.withinss
+}
+```
+```{r}
+# Plot the elbow curve to determine the optimal number of clusters
+elbow_data <- data.frame(NumClusters = 1:10, WSS = wss_values)
+ggplot(elbow_data, aes(x = NumClusters, y = WSS)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = 3, linetype = 2) +
+  labs(title = "Elbow Plot for K-means Clustering",
+       x = "Number of Clusters",
+       y = "Within-Cluster Sum of Squares") +
+  theme_minimal()
+```
+```{r}
+# Use the silhouette method to determine the optimal number of clusters
+fviz_nbclust(RFM_scaled, kmeans, method = "silhouette")
+```
+```{r}
+# Perform k-means clustering with k = 3 and k = 4
+k3 <- kmeans(RFM_scaled, centers = 3, nstart = 25)
+k4 <- kmeans(RFM_scaled, centers = 4, nstart = 25)
+```
+```{r}
+# Visualize k-means clusters with k = 3 and k = 4
+fviz_cluster(k3, geom = "point", data = RFM_scaled, pointsize = 0.2) + ggtitle("k = 3")
+```
+```{r}
+fviz_cluster(k4, geom = "point", data = RFM_scaled, pointsize = 0.2) + ggtitle("k = 4")
+```
+```{r}
+# Assign cluster IDs to the original RFM dataframe
+num_clusters <- 3
+k_custom <- kmeans(RFM_scaled, centers = num_clusters, nstart = 25)
+RFM$ClusterId <- k_custom$cluster
+```
+```{r}
+# Reshape the RFM dataframe for boxplot visualization
+melted_data <- reshape2::melt(RFM, id.vars = "ClusterId")
+ggplot(melted_data, aes(x = ClusterId, y = value, group = ClusterId, fill = as.factor(ClusterId))) +
+  geom_boxplot(show.legend = FALSE) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2") +
+  facet_wrap(~variable, scales = "free_y", ncol = 3)
+```
+```{r}
+# Calculate distance matrix and perform hierarchical clustering
+dist_matrix <- dist(RFM_scaled)
+hc_model <- hclust(dist_matrix, method = "ward.D2")
+# Cut the hierarchical tree into clusters and calculate within-cluster sum of squares
+cut_tree <- cutree(hc_model, k = 3)
+wss_values <- numeric(10)
+for (i in 2:10) {
+  cut_tree_i <- cutree(hc_model, k = i)
+  wss_values[i] <- sum((dist_matrix)^2 * (cut_tree_i - mean(cut_tree_i))^2)
+}
+# Plot the elbow curve for hierarchical clustering
+plot(2:10, wss_values[2:10], type = "b", pch = 19, col = "blue", main = "Elbow Plot for Hierarchical Clustering", xlab = "Number of Clusters", ylab = "Within-Cluster Sum of Squares")
+abline(v = 3, lty = 2)
+```
+```{r}
+# Use the silhouette method to determine the optimal number of clusters for hierarchical clustering
+fviz_nbclust(RFM_scaled, FUN = hcut, method = "silhouette")
+```
+```{r}
+euclidean_dist <- proxy::dist(as.matrix(RFM_scaled), method = "Euclidean")
+```
+```{r}
+# Perform hierarchical clustering using different methods
+methods <- c("average", "single", "complete", "ward.D2")
+hc_list <- lapply(methods, function(method) hclust(euclidean_dist, method = method))
+names(hc_list) <- methods
+# Print hierarchical clustering results for each method
+for (i in methods) {
+  print(paste("Hierarchical Clustering Results for", i))
+  print(hc_list[[i]])
+}
+```
+```{r}
+# Function to calculate agglomerative coefficient for different methods
+ac <- function(method) {
+  result <- agnes(as.matrix(RFM_scaled), method = method)$ac
+  return(result)
+}
+```
+```{r}
+# Calculate agglomerative coefficients for different hierarchical clustering methods
+ac_result_average <- ac("average")
+ac_result_single <- ac("single")
+ac_result_complete <- ac("complete")
+ac_result_ward <- ac("ward")
+cat("average: ", ac_result_average, "\n")
+cat("single: ", ac_result_single, "\n")
+cat("complete: ", ac_result_complete, "\n")
+cat("ward: ", ac_result_ward, "\n")
+```
+```{r}
+# Perform hierarchical clustering using the complete method
+hc_complete <- hclust(dist(RFM_scaled), method = "complete")
+hc_complete_dendrogram <- as.dendrogram(hc_complete)
+cd_complete <- color_branches(hc_complete_dendrogram, k = 3)
+plot(cd_complete)
+complete_clust <- cutree(hc_complete, k = 3)
+res_complete <- cbind(RFM, ClusterId = complete_clust)
+res_complete <- as.data.frame(res_complete)
+```
+```{r}
+# Perform hierarchical clustering using the single method
+hc_single <- hclust(dist(RFM_scaled), method = "single")
+hc_single_dendrogram <- as.dendrogram(hc_single)
+cd_single <- color_branches(hc_single_dendrogram, k = 3)
+plot(cd_single)
+single_clust <- cutree(hc_single, k = 3)
+res_single <- cbind(RFM, ClusterId = single_clust)
+res_single <- as.data.frame(res_single)
+```
+```{r}
+# Perform hierarchical clustering using the ward method
+hc_ward <- hclust(dist(RFM_scaled), method = "ward.D2")
+hc_ward_dendrogram <- as.dendrogram(hc_ward)
+cd_ward <- color_branches(hc_ward_dendrogram, k = 3)
+plot(cd_ward)
+ward_clust <- cutree(hc_ward, k = 3)
+res_ward <- cbind(RFM, ClusterId = ward_clust)
+res_ward <- as.data.frame(res_ward)
+res_ward
+```
+```{r}
+# Hierarchical clustering using average linkage method
+hc_average <- hclust(dist(RFM_scaled), method = "average")
+hc_average_dendrogram <- as.dendrogram(hc_average)
+cd_average <- color_branches(hc_average_dendrogram, k = 3)
+plot(cd_average)
+average_clust <- cutree(hc_average, k = 3)
+res_average <- cbind(RFM, ClusterId = average_clust)
+res_average <- as.data.frame(res_average)
+```
+```{r}
+# Melt the hierarchical clustering result for boxplot visualization
+melted_data_ward <- reshape2::melt(res_ward, id.vars = "ClusterId")
+# Create boxplots for each variable, grouped by cluster
+ggplot(melted_data_ward, aes(x = ClusterId, y = value, fill = as.factor(ClusterId))) +
+  geom_boxplot() +
+  facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Boxplots of RFM Variables by Cluster")
+```
+```{r}
+# Compute Dunn index for K-means clustering (k = 3)
+dunn_km = dunn(clusters = k3$cluster, Data = RFM_scaled)
+dunn_km
+```
+```{r}
+# Perform hierarchical clustering using Ward's method and cut dendrogram into k = 3 clusters
+memb_ward = cutree(hc_list$ward.D2, k = 3) 
+dunn_ward <- dunn(clusters = memb_ward, Data = RFM_scaled)
+dunn_ward
+```
+```{r}
+# Compute silhouette analysis for K-means clustering (k = 3)
+sil_k3 <- silhouette(k3$cluster, euclidean_dist)
+summary(sil_k3)
+```
+```{r}
+# Compute silhouette analysis for hierarchical clustering
+sil_hc <- silhouette(memb_ward, euclidean_dist)
+summary(sil_hc)
+```
+```{r}
+# Display the count of data points in each cluster for K-means clustering
+table(k3$cluster)
+```
+```{r}
+# Display the count of data points in each cluster for hierarchical clustering
+table(ward_clust)
+```
+```{r}
+# Visualize K-means clustering results using cluster centroids
+fviz_cluster(k3, data = RFM_scaled, geom = "point") + ggtitle("K-means Clustering")
+```
+```{r}
+# Visualize hierarchical clustering results using cluster centroids
+fviz_cluster(list(data = RFM_scaled, cluster = ward_clust), geom = "point") + ggtitle("Hierarchical Clustering")
+```
+```{r}
+# Display the mean values of variables for each cluster in K-means clustering
+aggregate(RFM,by = list(RFM$ClusterId),FUN = mean)
+```
+```{r}
+#Hierarchical clustering results
+aggregate(res_ward,by = list(res_ward$ClusterId),FUN = mean)
+```

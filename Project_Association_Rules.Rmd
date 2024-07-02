@@ -1,0 +1,135 @@
+---
+title: "Project_Association_Rules"
+author: "Bahalul Khan Pathan, Sujith, Aditya"
+date: "2023-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(arules)
+library(plyr) 
+library(arulesViz) 
+library(data.table)
+library(RColorBrewer)
+library(dplyr)
+library(stringr)
+```
+```{r}
+# Read data from an Excel file into a dataset named "mydataset"
+mydataset <- read_excel("Online_Retail.xlsx")
+head(mydataset)
+```
+```{r}
+# Adjust stock on hand by selecting transactions with UnitPrice > 0
+mydataset2 <- mydataset %>% filter(UnitPrice > 0)
+# Exclude stock codes not related to actual purchases
+excluded_codes <- c("D", "DOT", "S", "POST", "M", "C2", "AMAZONFEE", "B", "BANK CHARGES", "CRUK", "m", "PADS")
+mydataset2 <- mydataset2 %>% filter(!StockCode %in% excluded_codes)
+# Identify and remove rows with a Stock Code column that starts with "gift"
+giftcardrows <- mydataset2$InvoiceNo[grepl("^gift", mydataset2$StockCode, ignore.case = TRUE)]
+mydataset2 <- mydataset2[!mydataset2$InvoiceNo %in% giftcardrows, ]
+# Remove commas in the Description column to avoid CSV file issues
+mydataset2$Description <- str_replace_all(mydataset2$Description, ",", "")
+# Remove unnecessary columns for market basket analysis
+mydataset2 <- mydataset2 %>% select(-UnitPrice, -InvoiceDate, -CustomerID, -Country)
+# Display the first few rows of the modified data frame
+mydataset2
+```
+```{r}
+result <- mydataset2 %>% group_by(InvoiceNo) %>% summarise(Description = paste(Description, collapse = ","))
+# Write the result to a CSV file
+write.csv(result, "Products.csv", quote = FALSE, row.names = FALSE)
+# Display the result
+result
+```
+```{r}
+# Read transactions from CSV file
+transactions <- read.transactions(file = "Products.csv", format = "basket", sep = ",", cols = 1)
+# Clean item labels by removing double quotes
+transactions@itemInfo$labels <- gsub("\"", "", transactions@itemInfo$labels)
+# Display summary of transactions
+summary(transactions)
+```
+```{r}
+# Plot the item frequency for the most frequently purchased items
+itemFrequencyPlot(transactions, topN = 8, type = "relative", 
+                  col = brewer.pal(n = 5, name = "Set3"), 
+                  main = "Most 8 Frequently Purchased Items")
+```
+```{r}
+# Generate association rules using the Apriori algorithm
+rules <- apriori(transactions,parameter = list(supp=0.001, conf=0.8))
+```
+```{r}
+# Display a summary of the generated association rules
+summary(rules)
+```
+```{r}
+# Display details of the first 5 association rules
+inspect(rules[1:5])
+```
+```{r}
+inspect(sort(rules, by = "lift")[1:5])
+```
+```{r}
+# Display the minimum lift value among all rules
+min(rules@quality$lift)
+```
+```{r}
+# Display the total number of generated rules
+length(rules)
+```
+```{r}
+# Sort rules by confidence in descending order
+conf <- sort (rules, by="confidence", decreasing=TRUE)
+inspect(head(conf))
+```
+```{r}
+# Display a summary of the sorted rules
+summary(conf)
+```
+```{r}
+# Generate association rules specifically for the item "REGENCY TEA PLATE GREEN"
+rules_tea <- apriori(data = transactions, parameter = list(support = 0.001, confidence = 0.8), appearance = list(lhs = "REGENCY TEA PLATE GREEN"))
+```
+```{r}
+# Display details of the rules generated for "REGENCY TEA PLATE GREEN"
+inspect(rules_tea)
+```
+```{r}
+# Plot a two-key plot for the generated association rules
+plot(rules, method = "two-key plot",jitter = 0)
+```
+```{r}
+# Display a parallel coordinate plot for the top 10 rules based on confidence
+rules_head <- head(rules,10, by = "confidence")
+plot(rules_head, method="paracoord")
+```
+```{r}
+# Generate frequent itemsets using the Apriori algorithm
+min_support <- 0.01
+min_len <- 2
+itemsets <- apriori(transactions, parameter = list(support = min_support, minlen = min_len))
+inspect(itemsets)
+```
+```{r}
+# Generate frequent itemsets using the Eclat algorithm
+eclat<- eclat(transactions, parameter=list(support=0.01, minlen = 2))
+```
+```{r}
+# Display a summary of the generated frequent itemsets using Eclat
+summary(eclat)
+```
+```{r}
+# Sort and display the top 6 frequent itemsets
+sorted <- sort(eclat, by='support', descending=TRUE)[1:6]
+inspect(sorted)
+```
+```{r}
+# Plot a parallel coordinate plot for the top 6 frequent itemsets
+plot(sorted, method='paracoord')
+```
+

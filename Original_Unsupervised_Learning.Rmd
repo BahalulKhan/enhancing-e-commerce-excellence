@@ -1,0 +1,284 @@
+---
+title: "Project Name"
+author: "Bahalul Khan Pathan, Aditya, Sujith"
+date: '2023-12-06'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rmarkdown)
+library(DT)
+library(ggplot2)
+library(tidyverse)
+library(grid)
+library(knitr)
+library(dplyr)
+library(lubridate)
+#require(devtools)
+#install_github("Displayr/flipTime")
+#install.packages("flipTime")
+#library(flipTime)
+library(factoextra)
+library(gridExtra)
+#install.packages("fpc")
+library(fpc)
+library(tidyr)
+library(cluster)
+#install.packages("clValid")
+library(clValid)
+library(dendextend)
+```
+```{r}
+set.seed(123456)
+retail <- read.csv("OnlineRetail.csv")
+dim(retail)
+
+str(retail)
+
+colSums(is.na(retail))
+
+any(is.null(retail))
+
+retail = na.omit(retail)
+dim(retail)
+
+retail <- mutate(retail, Quantity = replace(Quantity, Quantity <= 0, NA),
+         UnitPrice = replace(UnitPrice, UnitPrice <= 0, NA))
+
+dim(unique(retail))[1]
+
+retail$InvoiceDate <- as.character(retail$InvoiceDate)
+
+# separate date and time components of invoice date
+retail$date <- sapply(retail$InvoiceDate, FUN = function(x) {strsplit(x, split = '[ ]')[[1]][1]})
+retail$time <- sapply(retail$InvoiceDate, FUN = function(x) {strsplit(x, split = '[ ]')[[1]][2]})
+# create month, year and hour of day variables
+retail$month <- sapply(retail$date, FUN = function(x) {strsplit(x, split = '[-]')[[1]][2]})
+retail$year <- sapply(retail$date, FUN = function(x) {strsplit(x, split = '[-]')[[1]][3]})
+retail$hourOfDay <- sapply(retail$time, FUN = function(x) {strsplit(x, split = '[:]')[[1]][1]})
+retail$InvoiceDate <- as.POSIXct(retail$InvoiceDate, format = "%m/%d/%Y %H:%M")
+retail <- mutate(retail, InvoiceDate = as.character(InvoiceDate))
+retail
+```
+```{r}
+retail$InvoiceDate <- as.Date(retail$InvoiceDate, format = "%Y-%m-%d")
+retail = mutate(retail, TotalSales = Quantity*UnitPrice)
+retail$dayOfWeek <- wday(retail$InvoiceDate,label = TRUE)
+retail
+```
+```{r}
+retail$Country <- as.factor(retail$Country)
+retail$month <- as.factor(retail$month)
+retail$year <- as.factor(retail$year)
+levels(retail$year) <- c(2010,2011)
+hourOfDay <- as.factor(retail$hourOfDay)
+retail$dayOfWeek <- as.factor(retail$dayOfWeek)
+
+```
+```{r}
+datatable(head(retail,100),extensions = 'FixedColumns', options = list(scrollX = TRUE, scrollY = "400px",fixedColumns = TRUE))
+
+```
+```{r}
+max_date <- max(retail$InvoiceDate, na.rm = TRUE)
+retail = mutate(retail, Diff = difftime(max_date, InvoiceDate, units = "days"))
+retail$Diff <- floor(retail$Diff)
+retail
+```
+```{r}
+RFM <- summarise(group_by(retail,CustomerID),Frequency = n(), Monetary = sum(TotalSales), Recency = min(Diff))
+RFM$Recency <- as.numeric(RFM$Recency)
+RFM$Monetary[is.na(RFM$Monetary)] <- 0
+summary(RFM)
+```
+```{r}
+head(RFM,10)
+ggplot(retail, aes(year)) + geom_bar(aes(fill = "year"), width = 0.6) + labs(title = "2010 vs 2011", x = "Year", y = "Transactions") + guides(fill = FALSE) + scale_x_discrete(labels = c("2010" = "2010", "2011" = "2011")) + theme_classic() 
+
+```
+```{r}
+Transactions_per_Country <- top_n(arrange(summarise(group_by(retail, Country), 'Number of Transcations' = n()), desc(`Number of Transcations`)), 10)
+names(Transactions_per_Country) <- c("Country", "Number of Transactions")
+Transactions_per_Country
+```
+```{r}
+Transaction_per_Country_plot <- ggplot(head(Transactions_per_Country,5), aes(x = reorder(Country,-`Number of Transactions`), y = `Number of Transactions`)) + geom_bar(stat = 'identity', fill = "Steel Blue") +
+  geom_text(aes(label = `Number of Transactions`)) +
+  ggtitle('Top 5 Countries by Number of Transactions') + xlab('Countries') +
+  ylab('Number of Transactions') +
+  theme_minimal() 
+print(Transaction_per_Country_plot)
+```
+```{r}
+ggplot(summarise(group_by(retail, dayOfWeek), revenue = sum(TotalSales)), aes(x = dayOfWeek, y = revenue)) + geom_bar(stat = 'identity', fill = 'Steel Blue') + labs(x = 'Day of Week', y = 'Revenue (£)', title = 'Revenue by Day of Week') + 
+  theme_minimal()
+  
+ggplot(summarise(group_by(retail, month), revenue = sum(TotalSales)), aes(x = month, y = revenue)) + geom_bar(stat = 'identity', fill = 'Steel Blue') + labs(x = 'month', y = 'Revenue (£)', title = 'Revenue by month of year') + 
+  theme_minimal()
+  
+ggplot(summarise(group_by(retail, hourOfDay), transactions = n_distinct(InvoiceNo)), aes(x = hourOfDay, y = transactions)) + geom_bar(stat = 'identity', fill = "Steel Blue") + labs(x = 'Hour of Day', y = 'transactions (£)', title = 'Transactions by hour of Day') + 
+  theme_minimal()
+```
+```{r}
+RFM <- data.frame(RFM)
+row.names(RFM) <- RFM$CustomerID
+RFM <- RFM[,-1]
+RFM_scaled <- scale(RFM) 
+RFM_scaled <- data.frame(RFM_scaled)
+RFM_scaled
+```
+```{r}
+fviz_nbclust(RFM_scaled, kmeans, method = "wss") + geom_vline(xintercept = 3, linetype = 2)
+```
+```{r}
+fviz_nbclust(RFM_scaled, kmeans, method = "silhouette") 
+```
+```{r}
+k3 <- kmeans(RFM_scaled, centers = 3, nstart = 25)
+k4 <- kmeans(RFM_scaled, centers = 4, nstart = 25)
+
+```
+```{r}
+fviz_cluster(k3, geom = "point", data = RFM_scaled, pointsize = 0.2) + ggtitle("k = 3")
+```
+```{r}
+fviz_cluster(k4, geom = "point", data = RFM_scaled, pointsize = 0.2) + ggtitle("k = 4")
+```
+```{r}
+res <- cbind(RFM, ClusterId = k3$cluster)
+res <- as.data.frame(res)
+res
+```
+```{r}
+a <- ggplot(res, aes(x = ClusterId, y = Frequency, group = ClusterId, fill = as.factor(ClusterId))) + 
+  geom_boxplot(show.legend = FALSE) + theme_minimal() + scale_fill_brewer(palette = "Set2") 
+b <- ggplot(res, aes(x = ClusterId, y = Monetary, group = ClusterId, fill = as.factor(ClusterId))) + 
+  geom_boxplot(show.legend = FALSE) + theme_minimal() + scale_fill_brewer(palette = "Set2")
+c <- ggplot(res, aes(x = ClusterId, y = Recency, group = ClusterId, fill = as.factor(ClusterId))) + 
+  geom_boxplot(show.legend = FALSE) + theme_minimal() + scale_fill_brewer(palette = "Set2")
+grid.arrange(a,b,c, ncol = 3)
+```
+```{r}
+fviz_nbclust(RFM_scaled, FUN = hcut, method = "wss") + geom_vline(xintercept = 3, linetype = 2)
+```
+```{r}
+fviz_nbclust(RFM_scaled, FUN = hcut, method = "silhouette")
+```
+```{r}
+euclidian_dist <- dist(RFM_scaled, method = "euclidean")
+```
+```{r}
+# Hierarchical clustering using Complete Linkage
+hc1 <- hclust(euclidian_dist, method = "single" )
+
+hc2 <- hclust(euclidian_dist, method = "complete" )
+
+hc3 <- hclust(euclidian_dist, method = "ward.D2" )
+
+hc4 <- hclust(euclidian_dist, method = "average" )
+
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+hc4
+```
+```{r}
+ac <- function(x) {
+  agnes(RFM_scaled, method = x)$ac
+}
+
+ac
+```
+```{r}
+#map_dbl(m, ac)
+```
+```{r}
+hc2 <- as.dendrogram(hc2)
+cd = color_branches(hc2,k = 3)
+plot(cd)
+```
+```{r}
+hc3 <- as.dendrogram(hc3)
+cd = color_branches(hc3,k = 3)
+plot(cd)
+```
+```{r}
+ward.clust = cutree(hc3,k = 3)
+res1 <- cbind(RFM, ClusterId = ward.clust)
+res1 <- as.data.frame(res1)
+res1
+```
+```{r}
+a <- ggplot(res1, aes(x = ClusterId, y = Frequency, group = ClusterId, fill = as.factor(ClusterId))) + 
+  geom_boxplot(show.legend = FALSE) + theme_minimal() + scale_fill_brewer(palette = "Set2") 
+b <- ggplot(res1, aes(x = ClusterId, y = Monetary, group = ClusterId, fill = as.factor(ClusterId))) + 
+  geom_boxplot(show.legend = FALSE) + theme_minimal() + scale_fill_brewer(palette = "Set2")
+c <- ggplot(res1, aes(x = ClusterId, y = Recency, group = ClusterId, fill = as.factor(ClusterId))) + 
+  geom_boxplot(show.legend = FALSE) + theme_minimal() + scale_fill_brewer(palette = "Set2")
+grid.arrange(a,b,c, ncol = 3)
+```
+```{r}
+dunn_km = dunn(clusters = k3$cluster, Data = RFM_scaled)
+dunn_km
+```
+```{r}
+memb_ward = cutree(hc3, k = 3) 
+dunn_ward <- dunn(clusters = memb_ward, Data = RFM_scaled)
+dunn_ward
+```
+```{r}
+sil_k3 <- silhouette(k3$cluster, euclidian_dist)
+summary(sil_k3)
+```
+```{r}
+sil_hc <- silhouette(memb_ward, euclidian_dist)
+summary(sil_hc)
+```
+```{r}
+table(k3$cluster)
+```
+```{r}
+table(ward.clust)
+```
+```{r}
+fviz_cluster(k3, data = RFM_scaled, geom = "point") + ggtitle("K-means Clustering")
+fviz_cluster(list(data = RFM_scaled, cluster = ward.clust), geom = "point") + ggtitle("Hierarchical Clustering")
+```
+```{r}
+#K-means Clustering results
+aggregate(res,by = list(res$ClusterId),FUN = mean)
+```
+```{r}
+#Hierarchical clustering results
+aggregate(res1,by = list(res1$ClusterId),FUN = mean)
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```

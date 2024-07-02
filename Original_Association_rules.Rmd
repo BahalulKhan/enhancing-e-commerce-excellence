@@ -1,0 +1,113 @@
+---
+title: "Original_Association_rules"
+author: "Bahalul Khan Pathan, Sujith, Aditya"
+date: "2023-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(arules)
+library(plyr) 
+library(arulesViz) 
+library(data.table)
+library(RColorBrewer)
+```
+```{r}
+mydataset <- read_excel("Online Retail.xlsx")
+mydataset<- data.frame(mydataset)
+head(mydataset)
+```
+```{r}
+#Adjustments for stock on hand by selecting transactions with UnitPrice > 0.
+mydataset2 <- subset(mydataset, UnitPrice > 0)
+mydataset2
+```
+```{r}
+#Stock codes not related to actual purchases by excluding them from the subset of data.
+excluded_codes <- c("D", "DOT", "S", "POST", "M", "C2", "AMAZONFEE", "B", "BANK CHARGES", "CRUK", "m", "PADS")
+mydataset2 <- mydataset2[!mydataset2$StockCode %in% excluded_codes, ]
+mydataset2
+```
+```{r}
+#Gift cards by identifying and removing rows with a Stock Code column that starts with "gift".
+giftcardrows <- mydataset2$InvoiceNo[mydataset2$StockCode %like% "gift*"]
+mydataset2 <- mydataset2[!mydataset2$InvoiceNo %in% giftcardrows,]
+mydataset2
+```
+```{r}
+#Commas in the Description column to avoid CSV file issues.
+mydataset2$Description <- gsub(",", "", mydataset2$Description, fixed = TRUE)
+mydataset2
+```
+```{r}
+#Columns not needed for market basket analysis
+mydataset2 <- subset(mydataset2, select = -c(5, 6, 7, 8))
+mydataset2
+```
+```{r}
+basket <- aggregate(Description ~ InvoiceNo, mydataset2, function(x) paste(x, collapse = ","))
+write.csv(basket, "Products.csv", quote = FALSE, row.names = FALSE)
+basket
+```
+```{r}
+suppressWarnings({
+  transactions <- read.transactions(file = "Products.csv", format = "basket", sep = ",", cols = 1)
+  transactions@itemInfo$labels <- gsub("\"", "", transactions@itemInfo$labels)
+})
+summary(transactions)
+```
+```{r}
+itemFrequencyPlot(transactions,topN=10,type="relative",col=brewer.pal(n=5, name="Set3"), main="Most 8 Frequently Purchased Items")
+```
+```{r}
+rules <- apriori(transactions,parameter = list(supp=0.001, conf=0.8))
+```
+```{r}
+summary(rules)
+```
+```{r}
+inspect(rules[1:5])
+```
+```{r}
+min(rules@quality$lift)
+```
+```{r}
+length(rules)
+```
+```{r}
+conf <- sort (rules, by="confidence", decreasing=TRUE)
+inspect(head(conf))
+```
+```{r}
+summary(conf)
+```
+```{r}
+params <- list(support = 0.001, confidence = 0.8)
+
+rules_tea <- apriori(data = transactions, parameter = params, appearance = list(lhs = "REGENCY TEA PLATE GREEN"))
+```
+```{r}
+inspect(rules_tea)
+```
+```{r}
+plot(rules, method = "two-key plot")
+```
+```{r}
+top10 <- head(rules, n = 10, by = "confidence")
+plot(top10, method="paracoord")
+```
+```{r}
+eclat<- eclat(transactions, parameter=list(support=0.01, minlen = 2))
+```
+```{r}
+summary(eclat)
+```
+```{r}
+inspect(sort(eclat, by='support', descending=TRUE)[1:6])
+```
+```{r}
+plot(sort(eclat, by='support', decreasing=TRUE)[1:6], method='paracoord')
+```
